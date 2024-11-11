@@ -1,0 +1,142 @@
+# Docker Compose configuration for deploying a Kafka-based messaging architecture.
+# This setup includes Zookeeper, Kafka brokers, topic management, producer and consumer services, and a Dead Letter Queue (DLQ) consumer.
+# Environment variables are used for configuration, allowing flexibility across environments (e.g., dev, staging, production).
+
+# version: '3.8'
+
+# Common settings for consumer services
+x-common-consumer: &common-consumer
+  build: ./my-python-consumer
+  depends_on:
+    kafka:
+      condition: service_healthy
+    topic-creator:
+      condition: service_healthy
+  restart: on-failure:10
+  environment:
+    BOOTSTRAP_SERVERS: ${BOOTSTRAP_SERVERS}
+    INPUT_TOPIC: ${INPUT_TOPIC}
+    OUTPUT_TOPIC: ${OUTPUT_TOPIC}
+    DLQ_TOPIC: ${DLQ_TOPIC}
+    GROUP_ID: ${GROUP_ID}
+  networks:
+    - kafka-network
+  platform: ${PLATFORM}
+
+services:
+  # Zookeeper for Kafka coordination
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.1
+    environment:
+      ZOOKEEPER_CLIENT_PORT: ${ZOOKEEPER_CLIENT_PORT}
+      ZOOKEEPER_TICK_TIME: ${ZOOKEEPER_TICK_TIME}  
+      ZOOKEEPER_INIT_LIMIT: ${ZOOKEEPER_INIT_LIMIT} 
+      ZOOKEEPER_SYNC_LIMIT: ${ZOOKEEPER_SYNC_LIMIT} 
+      ZOOKEEPER_MAXCNXNS: ${ZOOKEEPER_MAXCNXNS}
+    ports:
+      - "${ZOOKEEPER_CLIENT_PORT}:${ZOOKEEPER_CLIENT_PORT}"
+    networks:
+      - kafka-network
+    mem_limit: 1g
+
+  # Kafka broker
+  kafka:
+    image: confluentinc/cp-kafka:7.4.1
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: ${KAFKA_BROKER_ID}
+      KAFKA_ZOOKEEPER_CONNECT: ${KAFKA_ZOOKEEPER_CONNECT}
+      KAFKA_ZOOKEEPER_SESSION_TIMEOUT_MS: ${KAFKA_ZOOKEEPER_SESSION_TIMEOUT_MS}
+      KAFKA_LISTENERS: LISTENER_INTERNAL://0.0.0.0:9092,LISTENER_EXTERNAL://0.0.0.0:29092
+      KAFKA_ADVERTISED_LISTENERS: LISTENER_INTERNAL://kafka:9092,LISTENER_EXTERNAL://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: LISTENER_INTERNAL:PLAINTEXT,LISTENER_EXTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: ${KAFKA_INTER_BROKER_LISTENER_NAME}
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: ${KAFKA_TRANSACTION_STATE_LOG_MIN_ISR}
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: ${KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR}
+      KAFKA_TRANSACTION_STATE_LOG_NUM_PARTITIONS: ${KAFKA_TRANSACTION_STATE_LOG_NUM_PARTITIONS}
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: ${KAFKA_AUTO_CREATE_TOPICS_ENABLE}
+      KAFKA_DELETE_TOPIC_ENABLE: ${KAFKA_DELETE_TOPIC_ENABLE}
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: ${KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR}
+    ports:
+      - 9092:9092
+      - 29092:29092
+    networks:
+      - kafka-network
+    healthcheck:
+      test: ["CMD", "cub", "kafka-ready", "-b", "kafka:9092", "1", "20"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Service to ensure required topics are created on Kafka
+  topic-creator:
+    image: confluentinc/cp-kafka:7.4.1
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - kafka-network
+    volumes:
+      - ./kafka/create-topics.sh:/usr/bin/create-topics.sh:ro
+    command: "bash -c 'cub kafka-ready -b kafka:9092 1 ${KAFKA_READY_WAIT_TIME} && sleep 10 && /usr/bin/create-topics.sh'"
+    healthcheck:
+      test: ["CMD", "bash", "-c", "kafka-topics --bootstrap-server kafka:9092 --list | grep -w '${INPUT_TOPIC}'"]
+      interval: 5s
+      retries: 10
+
+  # Producer service sending messages to Kafka
+  my-python-producer:
+    image: mpradeep954/fetch-de-data-gen
+    depends_on:
+      kafka:
+        condition: service_healthy
+      topic-creator:
+        condition: service_healthy
+    restart: on-failure:10
+    ports:
+      - 9093:9093
+    environment:
+      BOOTSTRAP_SERVERS: ${BOOTSTRAP_SERVERS}
+      KAFKA_TOPIC: ${INPUT_TOPIC}
+    networks:
+      - kafka-network
+    platform: ${PLATFORM}
+
+  # Three consumer instances subscribing to the input topic
+  my-python-consumer-1:
+    <<: *common-consumer
+    environment:
+      INSTANCE_ID: ${CONSUMER_1_INSTANCE_ID}
+
+  my-python-consumer-2:
+    <<: *common-consumer
+    environment:
+      INSTANCE_ID: ${CONSUMER_2_INSTANCE_ID}
+
+  my-python-consumer-3:
+    <<: *common-consumer
+    environment:
+      INSTANCE_ID: ${CONSUMER_3_INSTANCE_ID}
+
+  # DLQ consumer for failed message processing
+  dlq-consumer:
+    build: ./dlq-consumer
+    depends_on:
+      kafka:
+        condition: service_healthy
+      topic-creator:
+        condition: service_healthy
+    restart: on-failure:10
+    environment:
+      BOOTSTRAP_SERVERS: ${BOOTSTRAP_SERVERS}
+      DLQ_TOPIC: ${DLQ_TOPIC}
+      GROUP_ID: ${DLQ_GROUP_ID}
+    networks:
+      - kafka-network
+    platform: ${PLATFORM}
+
+# Shared network for Kafka and related services
+networks:
+  kafka-network:
+    driver: bridge

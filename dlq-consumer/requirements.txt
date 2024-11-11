@@ -1,0 +1,5 @@
+# Requirements for dlq-consumer application
+# Specified version of confluent-kafka for compatibility with Kafka setup in production
+
+confluent-kafka==2.1.1
+

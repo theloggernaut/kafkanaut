@@ -1,0 +1,44 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "UserLogin",
+  "description": "Schema for validating user login event messages.",
+  "type": "object",
+
+  "properties": {
+    "user_id": {
+      "type": "string",
+      "description": "Unique identifier for the user"
+    },
+    "app_version": {
+      "type": "string",
+      "description": "Version of the application generating the login event"
+    },
+    "device_type": {
+      "type": "string",
+      "description": "Type of device used for login (e.g., 'mobile', 'desktop')"
+    },
+    "ip": {
+      "type": "string",
+      "format": "ipv4",
+      "description": "IP address of the user in IPv4 format"
+    },
+    "locale": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 2,
+      "description": "Locale of the user, represented as a 2-character ISO code (e.g., 'en', 'fr')"
+    },
+    "device_id": {
+      "type": "string",
+      "description": "Unique device identifier for tracking individual devices"
+    },
+    "timestamp": {
+      "type": "integer",
+      "description": "Timestamp of the login event in UNIX epoch format (seconds)"
+    }
+  },
+
+  "required": ["user_id", "app_version", "device_type", "ip", "locale", "device_id", "timestamp"],
+
+  "additionalProperties": false
+}

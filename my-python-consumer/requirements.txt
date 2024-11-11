@@ -1,0 +1,5 @@
+# Requirements for my-python-consumer application
+# Specific versions locked for compatibility and stability in production
+
+confluent-kafka==2.1.1   # Kafka client library for Python; version compatible with Kafka broker setup
+jsonschema==4.19.0       # Schema validation library for ensuring message structure compliance
